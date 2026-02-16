@@ -70,6 +70,12 @@ export default function Home() {
   const COOLDOWN_MS = 900;      // ms before next slide change allowed
 
   // -------------------------------------------------------
+  // Touch / swipe tracking
+  // -------------------------------------------------------
+  const touchStartYRef = useRef<number | null>(null);
+  const SWIPE_THRESHOLD = 50; // px of vertical swipe needed to trigger
+
+  // -------------------------------------------------------
   // Audio
   // -------------------------------------------------------
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -149,6 +155,21 @@ export default function Home() {
     await playTrack(cfg.src, { loop: cfg.loop ?? true, startAt: cfg.startAt });
   };
 
+  // Helper: advance or retreat one slide (respects cooldown)
+  const changeSlide = (direction: "next" | "prev") => {
+    if (cooldownRef.current) return;
+    cooldownRef.current = true;
+
+    setSlide((prev) => {
+      if (direction === "next") return Math.min(prev + 1, TOTAL_SLIDES);
+      return Math.max(prev - 1, 1);
+    });
+
+    window.setTimeout(() => {
+      cooldownRef.current = false;
+    }, COOLDOWN_MS);
+  };
+
   // Wheel listener — fixed sensitivity
   useEffect(() => {
     if (stage !== "slides") return;
@@ -163,16 +184,7 @@ export default function Home() {
       if (Math.abs(accDeltaRef.current) >= DELTA_THRESHOLD) {
         const goingDown = accDeltaRef.current > 0;
         accDeltaRef.current = 0;
-        cooldownRef.current = true;
-
-        setSlide((prev) => {
-          if (goingDown) return Math.min(prev + 1, TOTAL_SLIDES);
-          return Math.max(prev - 1, 1);
-        });
-
-        window.setTimeout(() => {
-          cooldownRef.current = false;
-        }, COOLDOWN_MS);
+        changeSlide(goingDown ? "next" : "prev");
       }
     };
 
@@ -182,6 +194,36 @@ export default function Home() {
       accDeltaRef.current = 0;
       cooldownRef.current = false;
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage, TOTAL_SLIDES]);
+
+  // Touch / swipe listener
+  useEffect(() => {
+    if (stage !== "slides") return;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      touchStartYRef.current = e.touches[0].clientY;
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (touchStartYRef.current === null) return;
+      const deltaY = touchStartYRef.current - e.changedTouches[0].clientY;
+      touchStartYRef.current = null;
+
+      if (Math.abs(deltaY) >= SWIPE_THRESHOLD) {
+        // Swipe up (finger moves up) → deltaY positive → go to next slide
+        changeSlide(deltaY > 0 ? "next" : "prev");
+      }
+    };
+
+    window.addEventListener("touchstart", handleTouchStart, { passive: true });
+    window.addEventListener("touchend", handleTouchEnd, { passive: true });
+    return () => {
+      window.removeEventListener("touchstart", handleTouchStart);
+      window.removeEventListener("touchend", handleTouchEnd);
+      touchStartYRef.current = null;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage, TOTAL_SLIDES]);
 
   useEffect(() => {
